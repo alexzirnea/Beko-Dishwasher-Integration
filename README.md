@@ -83,8 +83,10 @@ mainboard to the panel roughly 10 times per second. All byte offsets are 0-index
 
 ### Program + options bitfield (byte 11)
 
-Verified live against the physical panel (this corrected the source notes this project
-started from, which had bits 5 and 6 swapped):
+Verified live against the physical panel -- this corrected the source notes this project
+started from twice over: they initially had bits 5 and 6 swapped, and separately claimed
+bit 5 was Half Load and bit 7 unused. Bit 5 never once appeared set in any real capture; a
+live before/after toggle instead showed bit 7 flip in lockstep with Half Load on the panel:
 
 | Bit | Mask | Meaning |
 |---|---|---|
@@ -93,9 +95,9 @@ started from, which had bits 5 and 6 swapped):
 | 2 | `0x04` | 65°C |
 | 3 | `0x08` | 60°C Quick Shine |
 | 4 | `0x10` | 35°C Mini |
-| 5 | `0x20` | Half Load option |
+| 5 | — | never observed set; unknown |
 | 6 | `0x40` | Extra Rinse option |
-| 7 | — | unused / always 0 |
+| 7 | `0x80` | Half Load option |
 
 All of bits 0-4 clear means no program selected ("Off").
 

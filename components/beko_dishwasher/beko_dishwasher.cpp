@@ -95,8 +95,10 @@ void BekoDishwasher::process_frame_(const uint8_t *data, size_t len) {
   //          sample yet to     15  program running (0x00 / 0x01)
   //          calibrate scale)  16-18 fixed/framing, 19 checksum (algorithm not yet confirmed
   //                             from the two captured samples), 20-21 framing
-  uint8_t opts = data[11];  // bit0 70C, bit1 Eco, bit2 65C, bit3 60C, bit4 35C, bit5 half load, bit6 extra rinse
-                            // (confirmed against the physical panel; the spreadsheet had bit5/bit6 swapped)
+  uint8_t opts = data[11];  // bit0 70C, bit1 Eco, bit2 65C, bit3 60C, bit4 35C, bit6 extra rinse, bit7 half load
+                            // (confirmed against the physical panel; the spreadsheet had bit5/bit6 swapped, and
+                            // separately claimed bit5=half load/bit7=unused, but bit5 never appeared in any real
+                            // capture -- a live before/after toggle showed bit7 flip with half load instead)
   bool is_on = data[14] == 0xFF;
   bool is_running = data[15] == 0x01;
 
@@ -108,7 +110,7 @@ void BekoDishwasher::process_frame_(const uint8_t *data, size_t len) {
   else if (opts & 0x10) prog = "35°C Mini";
   if (program_name) program_name->publish_state(prog);
 
-  if (half_load) half_load->publish_state(opts & 0x20);
+  if (half_load) half_load->publish_state(opts & 0x80);
   if (extra_rinse) extra_rinse->publish_state(opts & 0x40);
   if (power_on) power_on->publish_state(is_on);
   if (running) running->publish_state(is_running);
