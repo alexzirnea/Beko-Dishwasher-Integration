@@ -36,13 +36,19 @@ single-byte "frames," you're probably polling instead of using an ISR.
 
 - Measured clock rate: **~1.75 kHz** (~3400-3500 rising edges per 2-second window)
 - A full status update repeats roughly **every ~100 ms**
-- There is no CS line, so **frame boundaries are inferred from an idle gap** in clocking
-  (>800 µs with no rising edge) rather than an explicit start/end marker
+- There is no CS line, and during sustained bus activity (e.g. normal-paced button presses)
+  the mainboard sends frames **back-to-back with no idle gap at all** between them. An
+  earlier version of this sniffer relied on an idle-gap timeout to find frame boundaries,
+  which worked fine at rest but caused multi-second stalls with zero valid frames under
+  normal use, since the byte accumulator had nothing to anchor alignment to and could drift
+  out of sync indefinitely. The fix: continuously check the incoming bitstream against the
+  frame's own known-constant 3-byte header (`02 10 2B`), independent of any byte-boundary
+  assumption -- finding it locks alignment onto real content rather than a guessed reset
+  point. See `on_clk_edge_()` in the component source.
 - Right after boot, or after a physical disturbance to the wiring (e.g. the door being
-  opened/closed while the ESP32 is tucked inside the panel), the capture can lose sync with
-  the real frame boundaries for a few cycles, producing oversized captures (seen up to 32
-  bytes) before self-correcting on the next clean idle gap. These are discarded (see
-  [Framing validity check](#framing-validity-check--the-unsolved-checksum)).
+  opened/closed while the ESP32 is tucked inside the panel), the capture can briefly produce
+  oversized/garbled reads before the header-sync locks onto real content again. These are
+  discarded (see [Framing validity check](#framing-validity-check--the-unsolved-checksum)).
 - Even with interrupt-driven capture, isolated single-bit (occasionally double-bit)
   corruption still occurs at a low rate (roughly 1 in 15-20 frames), most visible in the
   otherwise-constant framing bytes -- but it can land anywhere. Confirmed via Home Assistant
@@ -162,10 +168,16 @@ sends back).
 
 Since the checksum can't be validated, the sniffer instead validates frames against the
 **constant framing bytes** (0, 1, 2, 18, 20, 21 — always `02 10 2B ... AC ... BD 99`), which
-in practice catches essentially all corruption seen so far. A single failed frame is treated
-as routine noise and discarded; **two consecutive failures** are treated as genuine bit-sync
-loss and trigger a resync (the in-progress partial byte is discarded so the next clock edge
-starts a byte boundary cleanly, rather than continuing to accumulate on a misaligned stream).
+in practice catches essentially all corruption seen so far. Failed frames are simply
+discarded; there's no separate resync step needed since byte alignment is continuously
+re-derived from the header content itself (see [Bus timing](#bus-timing)), not from any
+stateful assumption that could drift and need correcting.
+
+A frame can still occasionally pass this check while carrying an isolated bit flip in a
+field the check doesn't cover (e.g. the time bytes) -- observed live as brief round-trip
+spikes in Home Assistant history. Every published value therefore also has to be seen twice
+in a row before the sniffer commits to it, which filters this out without needing the
+checksum.
 
 ## Unimplemented: MISO frame
 
