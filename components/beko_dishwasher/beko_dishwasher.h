@@ -77,6 +77,15 @@ class BekoDishwasher : public Component {
   // flood Home Assistant's recorder with duplicate states at that rate.
   uint8_t last_published_[MAX_FRAME_BYTES] = {0};
   size_t last_published_len_ = 0;
+
+  // A frame can pass the framing check (bytes 0,1,2,18,20,21 all intact) while still
+  // carrying a single-bit corruption elsewhere -- e.g. in the time field -- since the
+  // checksum that would normally catch this can't be validated (see above). Observed live
+  // in Home Assistant history as brief round-trip spikes (e.g. 142->202->142 within 100ms,
+  // one bit flipped in the hours byte and back). Require a new value to be seen twice in a
+  // row before publishing it, so an isolated one-frame glitch never reaches HA.
+  uint8_t candidate_[MAX_FRAME_BYTES] = {0};
+  size_t candidate_len_ = 0;
 };
 
 }  // namespace beko_dishwasher

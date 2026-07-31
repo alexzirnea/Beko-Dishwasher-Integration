@@ -67,7 +67,19 @@ void BekoDishwasher::process_frame_(const uint8_t *data, size_t len) {
   }
   consecutive_failures_ = 0;
 
-  if (len == last_published_len_ && memcmp(data, last_published_, len) == 0) return;
+  if (len == last_published_len_ && memcmp(data, last_published_, len) == 0) {
+    candidate_len_ = 0;  // back to the stable state; drop any pending unconfirmed candidate
+    return;
+  }
+
+  // Content differs from what's currently published -- could be a real change or a
+  // one-frame glitch. Only commit it once the same value shows up twice in a row.
+  if (len != candidate_len_ || memcmp(data, candidate_, len) != 0) {
+    memcpy(candidate_, data, len);
+    candidate_len_ = len;
+    return;
+  }
+
   memcpy(last_published_, data, len);
   last_published_len_ = len;
 
