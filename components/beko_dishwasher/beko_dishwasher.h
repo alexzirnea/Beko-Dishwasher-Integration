@@ -56,22 +56,27 @@ class BekoDishwasher : public Component {
   volatile uint8_t isr_bit_count_ = 0;
   volatile uint8_t frame_buf_[MAX_FRAME_BYTES];
   volatile uint8_t frame_len_ = 0;
-  volatile uint32_t last_bit_time_us_ = 0;
   volatile uint32_t edge_count_ = 0;
+
+  // Byte alignment can't be inferred from timing alone: during sustained bus activity the
+  // mainboard sends frames with no reliable idle gap between them, so any arbitrary reset
+  // point (a timing gap, or blindly chunking every 22 bytes) has no guarantee of landing on
+  // the real byte boundary -- once off by even one bit, every subsequent byte is garbage
+  // until pure luck realigns it. Instead, every incoming bit (regardless of byte boundary)
+  // is shifted into this register and checked against the frame's known-constant 3-byte
+  // header (02 10 2B); finding it locks byte alignment onto real content rather than timing.
+  volatile uint32_t sync_shift_ = 0;
 
   static void gpio_isr_trampoline(void *arg);
   void on_clk_edge_();
 
   void process_frame_(const uint8_t *data, size_t len);
-  void resync_();
 
   // Byte 19 is a real per-frame checksum (proven deterministic against ~100 captured
   // frames), but it doesn't match any standard algorithm (XOR/sum/CRC-8/Fletcher, tried
   // exhaustively over every byte range) -- almost certainly a proprietary lookup table in
   // the mainboard firmware, not recoverable from captures alone. The constant framing bytes
-  // (0,1,2,18,20,21) serve as the practical validity check instead. Two consecutive failures
-  // is treated as bit-sync loss, not just single-bit noise, and forces a resync.
-  uint8_t consecutive_failures_ = 0;
+  // (0,1,2,18,20,21) serve as the practical validity check instead.
 
   // Every decoded field is a pure function of the raw frame, so comparing the raw bytes
   // against the last *published* frame is enough to skip redundant republishes -- frames

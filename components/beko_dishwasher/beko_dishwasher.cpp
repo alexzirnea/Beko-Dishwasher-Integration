@@ -23,24 +23,31 @@ void IRAM_ATTR BekoDishwasher::gpio_isr_trampoline(void *arg) {
 void IRAM_ATTR BekoDishwasher::on_clk_edge_() {
   edge_count_++;
   bool bit = digitalRead(mosi_pin_);
+
+  // Every bit feeds the sync window, regardless of where we think the current byte
+  // boundary is. Finding the frame's constant 3-byte header here means we know the exact
+  // bit position of a real frame start -- content-based sync, not a guessed reset point.
+  sync_shift_ = (sync_shift_ << 1) | (bit ? 1u : 0u);
+  if ((sync_shift_ & 0xFFFFFFu) == 0x02102Bu) {
+    frame_buf_[0] = 0x02;
+    frame_buf_[1] = 0x10;
+    frame_buf_[2] = 0x2B;
+    frame_len_ = 3;
+    isr_current_byte_ = 0;
+    isr_bit_count_ = 0;
+    return;
+  }
+
+  if (frame_len_ == 0) return;  // not synced to a header yet -- keep scanning, don't accumulate
+
   isr_current_byte_ = (isr_current_byte_ << 1) | (bit ? 1 : 0);
   isr_bit_count_++;
-  last_bit_time_us_ = micros();
 
   if (isr_bit_count_ == 8) {
     if (frame_len_ < MAX_FRAME_BYTES) frame_buf_[frame_len_++] = isr_current_byte_;
     isr_current_byte_ = 0;
     isr_bit_count_ = 0;
   }
-}
-
-void BekoDishwasher::resync_() {
-  ESP_LOGW(TAG, "Two consecutive frame failures -- resetting bit/byte sync");
-  noInterrupts();
-  isr_current_byte_ = 0;
-  isr_bit_count_ = 0;
-  frame_len_ = 0;
-  interrupts();
 }
 
 void BekoDishwasher::process_frame_(const uint8_t *data, size_t len) {
@@ -58,14 +65,8 @@ void BekoDishwasher::process_frame_(const uint8_t *data, size_t len) {
 
   if (!valid) {
     ESP_LOGD(TAG, "Discarding frame that fails framing check");
-    consecutive_failures_++;
-    if (consecutive_failures_ >= 2) {
-      consecutive_failures_ = 0;
-      resync_();
-    }
     return;
   }
-  consecutive_failures_ = 0;
 
   if (len == last_published_len_ && memcmp(data, last_published_, len) == 0) {
     candidate_len_ = 0;  // back to the stable state; drop any pending unconfirmed candidate
@@ -142,21 +143,23 @@ void BekoDishwasher::process_frame_(const uint8_t *data, size_t len) {
 void BekoDishwasher::loop() {
   uint32_t now_ms = millis();
 
-  // Bus has gone idle since the last clock edge the ISR captured -> frame boundary.
-  // (No CS line, so a gap in clocking is the only frame delimiter we have.)
+  // Byte alignment is now locked to real frame content (see on_clk_edge_), so extraction
+  // just needs to happen once a full 22 bytes have accumulated since the last header sync --
+  // no timing/idle-gap heuristic needed, which also means this works correctly even when
+  // the mainboard sends frames back-to-back with no gap at all.
   uint8_t local_buf[MAX_FRAME_BYTES];
   uint8_t local_len = 0;
 
   noInterrupts();
-  bool idle = frame_len_ > 0 && isr_bit_count_ == 0 && (micros() - last_bit_time_us_) > 800;
-  if (idle) {
+  bool ready = frame_len_ >= 22 && isr_bit_count_ == 0;
+  if (ready) {
     local_len = frame_len_;
     memcpy(local_buf, (const void *) frame_buf_, local_len);
     frame_len_ = 0;
   }
   interrupts();
 
-  if (idle) process_frame_(local_buf, local_len);
+  if (ready) process_frame_(local_buf, local_len);
 
   if (now_ms - last_report_ms_ > 2000) {
     noInterrupts();
