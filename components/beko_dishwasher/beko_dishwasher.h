@@ -21,6 +21,7 @@ class BekoDishwasher : public Component {
   void set_program_sensor(text_sensor::TextSensor *s) { program_name = s; }
   void set_remaining_time_sensor(text_sensor::TextSensor *s) { remaining_time = s; }
   void set_status_sensor(text_sensor::TextSensor *s) { status = s; }
+  void set_led_state_sensor(text_sensor::TextSensor *s) { led_state = s; }
   void set_remaining_minutes_sensor(sensor::Sensor *s) { remaining_minutes = s; }
   void set_power_on_sensor(binary_sensor::BinarySensor *s) { power_on = s; }
   void set_running_sensor(binary_sensor::BinarySensor *s) { running = s; }
@@ -32,6 +33,7 @@ class BekoDishwasher : public Component {
   text_sensor::TextSensor *program_name{nullptr};
   text_sensor::TextSensor *remaining_time{nullptr};
   text_sensor::TextSensor *status{nullptr};
+  text_sensor::TextSensor *led_state{nullptr};
   sensor::Sensor *remaining_minutes{nullptr};
 
   binary_sensor::BinarySensor *power_on{nullptr};

@@ -37,6 +37,8 @@ beko_dishwasher:
   mosi_pin: 4
   status:
     name: Status
+  led_state:
+    name: Start/Stop LED
   power_on:
     name: Power On
   running:

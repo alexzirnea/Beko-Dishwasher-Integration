@@ -13,6 +13,7 @@ CONF_PROGRAM = "program"
 CONF_REMAINING_TIME = "remaining_time"
 CONF_REMAINING_MINUTES = "remaining_time_minutes"
 CONF_STATUS = "status"
+CONF_LED_STATE = "led_state"
 CONF_POWER_ON = "power_on"
 CONF_RUNNING = "running"
 CONF_HALF_LOAD = "half_load"
@@ -39,6 +40,9 @@ CONFIG_SCHEMA = cv.Schema(
         ),
         cv.Optional(CONF_STATUS): text_sensor.text_sensor_schema(
             icon="mdi:information-outline",
+        ),
+        cv.Optional(CONF_LED_STATE): text_sensor.text_sensor_schema(
+            icon="mdi:led-on",
         ),
 
         # Numeric sensor, for graphing/automations in HA (e.g. "notify when < 10 min left")
@@ -90,6 +94,10 @@ async def to_code(config):
     if CONF_STATUS in config:
         sens = await text_sensor.new_text_sensor(config[CONF_STATUS])
         cg.add(var.set_status_sensor(sens))
+
+    if CONF_LED_STATE in config:
+        sens = await text_sensor.new_text_sensor(config[CONF_LED_STATE])
+        cg.add(var.set_led_state_sensor(sens))
 
     # Numeric Sensor
     if CONF_REMAINING_MINUTES in config:

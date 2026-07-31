@@ -121,10 +121,21 @@ void BekoDishwasher::process_frame_(const uint8_t *data, size_t len) {
   if (data[12] == 0x0E) led = "Solid";
   else if (data[12] == 0x0C) led = "Flashing";
   else if (data[12] == 0x00) led = "Off";
+  if (led_state) led_state->publish_state(led);
 
+  // Derived machine state. power_on + running alone can't tell "freshly powered on,
+  // nothing selected yet" apart from "cycle just ended, draining before full shutdown" --
+  // both have running=false -- but the two are distinguishable by the LED: idle-not-started
+  // shows LED off, draining shows it flashing (confirmed against a live end-of-cycle
+  // sequence: running went false the instant the countdown hit 0, LED started flashing,
+  // and only ~80s later did power_on drop and the LED go off for real).
   if (status) {
-    status->publish_state(str_sprintf("%s | %s | Start/Stop LED %s",
-        is_on ? "ON" : "OFF", is_running ? "Running" : "Idle", led));
+    const char *machine_state;
+    if (!is_on) machine_state = "Off";
+    else if (is_running) machine_state = "Running";
+    else if (data[12] == 0x0C) machine_state = "Draining";
+    else machine_state = "Idle";
+    status->publish_state(machine_state);
   }
 }
 
