@@ -1,0 +1,27 @@
+esphome:
+  name: beko-dishwasher
+  friendly_name: Beko Dishwasher
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+wifi:
+  ssid: "YourWiFiSSID"
+  password: "YourWiFiPassword"
+
+api:
+ota:
+logger:
+
+external_components:
+  - source:
+      type: local
+      path: beko_dishwasher
+
+custom_component:
+  - lambda: |-
+      auto beko = new beko_dishwasher::BekoDishwasher();
+      App.register_component(beko);
+      return {beko};
