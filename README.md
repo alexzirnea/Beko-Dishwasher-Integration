@@ -45,7 +45,12 @@ single-byte "frames," you're probably polling instead of using an ISR.
   [Framing validity check](#framing-validity-check--the-unsolved-checksum)).
 - Even with interrupt-driven capture, isolated single-bit (occasionally double-bit)
   corruption still occurs at a low rate (roughly 1 in 15-20 frames), most visible in the
-  otherwise-constant framing bytes.
+  otherwise-constant framing bytes -- but it can land anywhere. Confirmed via Home Assistant
+  history: `remaining_time` showed brief round-trip spikes (e.g. `142 -> 202 -> 142` within
+  100ms, a single flipped bit in the hours byte and back) from frames that passed the framing
+  check but still carried corruption in a field the check doesn't cover. The sniffer now
+  requires a changed value to be seen twice in a row before publishing it, which filters this
+  out without needing the (uncracked) checksum.
 
 ## Frame format (MOSI direction, mainboard -> panel)
 
@@ -88,6 +93,33 @@ started from, which had bits 5 and 6 swapped):
 
 All of bits 0-4 clear means no program selected ("Off").
 
+### Machine state: Off / Idle / Draining / Running
+
+`power_on` (byte 14) and `running` (byte 15) alone can't fully describe what the machine is
+doing: both are `power_on=true, running=false` for two very different real situations --
+freshly powered on with nothing started yet, and a cycle that just finished but hasn't fully
+shut down. The **LED byte (12)** is what tells them apart. Confirmed by watching a complete
+end-of-cycle sequence live in Home Assistant history:
+
+```
+remaining_time = 1 min                              (actively running)
+remaining_time = 0 min, running -> false, LED -> Flashing     (cycle ends, draining begins)
+                    ~80 seconds later
+power_on -> false, program -> Off, LED -> Off, remaining_time -> idle preview value
+```
+
+So `running` drops to false **the instant** the displayed countdown hits `0:00`, but the
+machine stays powered on with the Start/Stop LED **flashing** for about 80 more seconds
+(very likely draining residual water before the machine considers the cycle truly complete)
+before `power_on` finally drops. The derived `status` entity encodes this as four states:
+
+| `status` | Condition |
+|---|---|
+| `Off` | `power_on = false` |
+| `Running` | `power_on = true`, `running = true` |
+| `Draining` | `power_on = true`, `running = false`, LED = Flashing (`0x0C`) |
+| `Idle` | `power_on = true`, `running = false`, LED != Flashing (freshly on / nothing started) |
+
 ### Time format
 
 Bytes 6-7 display as **H:MM**, confirmed by watching a live countdown during an actual wash
@@ -98,6 +130,14 @@ in BCD, "10 minutes" would be stored as `0x10` and the next tick would jump stra
 out. While idle/browsing programs, this field shows the *estimated total duration* for the
 currently selected program + options rather than a countdown; it only starts decrementing
 once the cycle is actually running.
+
+Checked against a full real wash cycle's Home Assistant history: the value went from 113 min
+to 0 min over ~111 real minutes elapsed -- essentially exact 1:1 real-time tracking for the
+entire cycle, not a rough estimate that drifts. One legitimate mid-cycle jump was observed
+(`46 -> 42 -> 41 -> 46 -> 45 min` over ~45 seconds, distinguishable from corruption noise by
+not being an instant single-sample round-trip) that doesn't fit the corruption pattern --
+possibly the mainboard re-estimating total cycle time based on a soil/turbidity sensor
+reading, but not confirmed or reproduced yet.
 
 ### Framing validity check & the unsolved checksum
 
@@ -187,7 +227,9 @@ beko_dishwasher:
   remaining_time:
     name: Remaining Time (H:MM)   # human-readable text
   status:
-    name: Status
+    name: Status                  # derived enum: Off / Idle / Draining / Running
+  led_state:
+    name: Start/Stop LED          # raw LED decode: Solid / Flashing / Off
   power_on:
     name: Power On                # device_class: power
   running:
